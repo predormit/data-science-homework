@@ -1,110 +1,64 @@
-import torch
-from torch import nn
-from torch.utils.data import DataLoader
-from torchvision import datasets
-from torchvision.transforms import ToTensor
+from sklearn.datasets import load_iris
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+import numpy as np
+from sklearn.preprocessing import label_binarize
+from sklearn.metrics import confusion_matrix, precision_score, accuracy_score, recall_score, f1_score, roc_auc_score, \
+    roc_curve
+import matplotlib.pyplot as plt
 
-# Download training data from open datasets.
-training_data = datasets.FashionMNIST(
-    root="data",
-    train=True,
-    download=True,
-    transform=ToTensor(),
-)
 
-# Download test data from open datasets.
-test_data = datasets.FashionMNIST(
-    root="data",
-    train=False,
-    download=True,
-    transform=ToTensor(),
-)
+# 加载数据集
+def loadDataSet():
+    iris_dataset = load_iris()
+    X = iris_dataset.data
+    y = iris_dataset.target
+    # 将数据划分为训练集和测试集
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+    return X_train, X_test, y_train, y_test
 
-batch_size = 64
+# 训练Logistic模性
+def trainLS(x_train, y_train):
+    # Logistic生成和训练
+    clf = LogisticRegression()
+    clf.fit(x_train, y_train)
+    return clf
 
-# Create data loaders.
-train_dataloader = DataLoader(training_data, batch_size=batch_size)
-test_dataloader = DataLoader(test_data, batch_size=batch_size)
 
-for X, y in test_dataloader:
-    print(f"Shape of X [N, C, H, W]: {X.shape}")
-    print(f"Shape of y: {y.shape} {y.dtype}")
-    break
+# 测试模型
+def test(model, x_test, y_test):
+    # 将标签转换为one-hot形式
+    #y_one_hot = label_binarize(y_test, np.arange(3))
+    # 预测结果
+    y_pre = model.predict(x_test)
+    # 预测结果的概率
+    #y_pre_pro = model.predict_proba(x_test)
 
-# Get cpu, gpu or mps device for training.
-device = (
-    "cuda"
-    if torch.cuda.is_available()
-    else "mps"
-    if torch.backends.mps.is_available()
-    else "cpu"
-)
-print(f"Using {device} device")
+    # 混淆矩阵
+    con_matrix = confusion_matrix(y_test, y_pre)
+    print('confusion_matrix:\n', con_matrix)
+    print('accuracy:{}'.format(accuracy_score(y_test, y_pre)))
+    print('precision:{}'.format(precision_score(y_test, y_pre, average='micro')))
+    print('recall:{}'.format(recall_score(y_test, y_pre, average='micro')))
+    print('f1-score:{}'.format(f1_score(y_test, y_pre, average='micro')))
 
-# Define model
-class NeuralNetwork(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.flatten = nn.Flatten()
-        self.linear_relu_stack = nn.Sequential(
-            nn.Linear(28*28, 512),
-            nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, 10)
-        )
+    # 绘制ROC曲线
+    #drawROC(y_one_hot, y_pre_pro)
 
-    def forward(self, x):
-        x = self.flatten(x)
-        logits = self.linear_relu_stack(x)
-        return logits
+def drawROC(y_one_hot, y_pre_pro):
+    # AUC值
+    auc = roc_auc_score(y_one_hot, y_pre_pro, average='micro')
+    # 绘制ROC曲线
+    fpr, tpr, thresholds = roc_curve(y_one_hot.ravel(), y_pre_pro.ravel())
+    plt.plot(fpr, tpr, linewidth=2, label='AUC=%.3f' % auc)
+    plt.plot([0, 1], [0, 1], 'k--')
+    plt.axis([0, 1.1, 0, 1.1])
+    plt.xlabel('False Postivie Rate')
+    plt.ylabel('True Positive Rate')
+    plt.legend()
+    plt.show()
 
-model = NeuralNetwork().to(device)
-print(model)
-
-loss_fn = nn.CrossEntropyLoss()
-optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
-
-def train(dataloader, model, loss_fn, optimizer):
-    size = len(dataloader.dataset)
-    model.train()
-    for batch, (X, y) in enumerate(dataloader):
-        X, y = X.to(device), y.to(device)
-
-        # Compute prediction error
-        pred = model(X)
-        loss = loss_fn(pred, y)
-
-        # Backpropagation
-        loss.backward()
-        optimizer.step()
-        optimizer.zero_grad()
-
-        if batch % 100 == 0:
-            loss, current = loss.item(), (batch + 1) * len(X)
-            print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
-
-def test(dataloader, model, loss_fn):
-    size = len(dataloader.dataset)
-    num_batches = len(dataloader)
-    model.eval()
-    test_loss, correct = 0, 0
-    with torch.no_grad():
-        for X, y in dataloader:
-            X, y = X.to(device), y.to(device)
-            pred = model(X)
-            test_loss += loss_fn(pred, y).item()
-            correct += (pred.argmax(1) == y).type(torch.float).sum().item()
-    test_loss /= num_batches
-    correct /= size
-    print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
-
-epochs = 9
-for t in range(epochs):
-    print(f"Epoch {t+1}\n-------------------------------")
-    train(train_dataloader, model, loss_fn, optimizer)
-    test(test_dataloader, model, loss_fn)
-print("Done!")
-
-torch.save(model.state_dict(), "model.pth")
-print("Saved PyTorch Model State to model.pth")
+if __name__ == '__main__':
+    X_train, X_test, y_train, y_test = loadDataSet()
+    model = trainLS(X_train, y_train)
+    test(model, X_test, y_test)
